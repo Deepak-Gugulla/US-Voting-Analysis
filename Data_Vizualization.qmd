@@ -1,0 +1,239 @@
+---
+title: "Stat. 651: Project"
+author: " VAMSHI REDDY MADEM, DEEPAK GUGULLA"
+date: "December 01, 2023"
+format: 
+  html: 
+    self-contained: true
+---
+
+```{r}
+# libraries
+library(cluster)
+library(ggplot2)
+library(plotly)
+library(lubridate)
+library(leaflet)
+library(dplyr)
+library(sf)
+library(tidyverse)
+library(statebins)
+
+```
+
+
+
+
+```{r}
+library(tibble)
+# Convert the votes.repub dataset to a data frame
+votes_tidy <- as.data.frame(votes.repub)
+
+# Add a column for State names
+votes_tidy <- votes_tidy %>%
+  rownames_to_column(var = "State") %>%
+  pivot_longer(cols = -State, names_to = "Year", values_to = "Percentage")
+
+# Clean the "Year" column to remove "X" prefix and convert to numeric
+votes_tidy <- votes_tidy %>%
+  mutate(Year = as.numeric(gsub("X", "", Year)),
+         Date = ymd(paste0(Year, "-01-01")))
+
+
+```
+
+
+```{r}
+# Filter data for the year 1976
+votes_1976 <- votes_tidy[votes_tidy$Year == 1976, ]
+
+# Handle missing percentages (if any)
+votes_1976 <- votes_1976 %>% drop_na(Percentage)
+```
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+library(maps)
+
+
+
+# Filter for the year 1976
+data_1976 <- votes_1976
+
+
+# Get U.S. state map data
+us_states <- map_data("state")
+
+# Merge with map data
+data_1976$region <- tolower(data_1976$State)
+map_data_1976 <- merge(us_states, data_1976, by = "region", all.x = TRUE)
+
+# Create a static ggplot map
+p <- ggplot(data = map_data_1976, aes(x = long, y = lat, group = group, fill = Percentage)) +
+  geom_polygon(color = "white") +
+  scale_fill_gradient(name = "Vote Percentage", low = "yellow", high = "red", na.value = "gray") +
+  theme_void() +
+  ggtitle("Republican Vote Percentage by State (1976)")
+
+# Convert to an interactive plotly map
+interactive_map <- ggplotly(p)
+
+# Show the interactive map
+interactive_map
+```
+
+
+
+
+
+
+```{r}
+# Create a statebin graph with enhancements
+ statebins(votes_1976, state_col = "State", value_col = "Percentage") +
+  scale_fill_gradient(low = "lightblue", high = "darkblue", na.value = "gray90") + # Gradient for clarity
+  labs(
+    title = "Vote Percentage by State (1976)",
+    subtitle = "Visualizing voting percentages across states",
+    fill = "Vote %"
+  ) +
+  theme_statebins(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5)
+  )
+
+```
+
+
+```{r}
+library(plotly)
+library(dplyr)
+
+# Average Voting Percentage by Year
+yearly_avg <- votes_tidy %>%
+  group_by(Year) %>%
+  summarise(
+    Mean_Percentage = mean(Percentage, na.rm = TRUE),
+    Median_Percentage = median(Percentage, na.rm = TRUE)
+  )
+
+# Interactive Line Plot
+p1 <- plot_ly(yearly_avg, x = ~Year, y = ~Mean_Percentage, 
+              type = 'scatter', mode = 'lines+markers',
+              name = 'Mean Voting %') %>%
+  add_trace(y = ~Median_Percentage, name = 'Median Voting %') %>%
+  layout(
+    title = 'Voting Percentages Over Time',
+    xaxis = list(title = 'Year'),
+    yaxis = list(title = 'Voting Percentage'),
+    hovermode = 'compare'
+  )
+
+p1
+```
+
+
+```{r}
+# Top and Bottom States by Average Voting Percentage
+state_avg <- votes_tidy %>%
+  group_by(State) %>%
+  summarise(Avg_Percentage = mean(Percentage, na.rm = TRUE)) %>%
+  arrange(desc(Avg_Percentage))
+
+top_bottom_states <- bind_rows(
+  head(state_avg, 5),
+  tail(state_avg, 5)
+)
+
+p5 <- plot_ly(top_bottom_states, x = ~State, y = ~Avg_Percentage, 
+              type = 'bar', 
+              color = ~State,
+              text = ~round(Avg_Percentage, 2),
+              textposition = 'auto') %>%
+  layout(
+    title = 'Top 5 and Bottom 5 States by Average Voting Percentage',
+    xaxis = list(title = 'State', tickangle = -45),
+    yaxis = list(title = 'Average Voting Percentage')
+  )
+
+p5
+```
+
+```{r}
+# Interactive Box Plot of Voting Percentages by State
+p2 <- plot_ly(votes_tidy, x = ~State, y = ~Percentage, 
+              type = 'box', 
+              color = ~State) %>%
+  layout(
+    title = 'Voting Percentage Distribution by State',
+    xaxis = list(title = 'State', tickangle = -45),
+    yaxis = list(title = 'Voting Percentage')
+  )
+
+p2
+```
+
+
+
+```{r}
+library(plotly)
+library(dplyr)
+
+# Prepare the data
+voting_data_processed <- votes_tidy %>%
+  group_by(State, Year) %>%
+  summarise(
+    Avg_Percentage = mean(Percentage, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  # Sort by average percentage to create meaningful ordering
+  group_by(State) %>%
+  mutate(
+    Mean_State_Percentage = mean(Avg_Percentage, na.rm = TRUE),
+    Trend_Direction = ifelse(
+      lm(Avg_Percentage ~ Year)$coefficients[2] > 0, 
+      "Increasing", 
+      "Decreasing"
+    )
+  ) %>%
+  ungroup()
+
+# Create a more sophisticated heatmap
+p <- plot_ly(
+  data = voting_data_processed,
+  x = ~Year,
+  y = ~reorder(State, Mean_State_Percentage),  # Order states by mean percentage
+  z = ~Avg_Percentage,
+  type = 'heatmap',
+  colors = colorRamp(c("#0000FF", "#FFFFFF", "#FF0000")),
+  text = ~paste(
+    "State: ", State,
+    "<br>Year: ", Year,
+    "<br>Voting %: ", round(Avg_Percentage, 2),
+    "<br>Overall Trend: ", Trend_Direction
+  ),
+  hoverinfo = 'text'
+) %>%
+  layout(
+    title = "Voting Percentage Evolution: State by State",
+    xaxis = list(
+      title = "Year", 
+      tickmode = 'linear',
+      dtick = 10  # Show every 10 years
+    ),
+    yaxis = list(
+      title = "States (Ordered by Mean Voting %)",
+      tickfont = list(size = 8)  # Smaller font for state names
+    ),
+    margin = list(l = 150)  # Wider left margin for state names
+  )
+
+# Display the plot
+p
+```
+
+
+
+
